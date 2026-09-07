@@ -4,6 +4,9 @@ from __future__ import annotations
 try:
     from window_sense.inference import (
         AdaptiveBaselineModel,
+        BaselineTrustPolicy,
+        BaselineTrustState,
+        BaselineTrustEvaluator,
         PageHinkleyChangePoint,
         WindowState,
         WindowInferenceEngine,
@@ -16,6 +19,9 @@ except ImportError:
         sys.path.insert(0, root_dir)
     from window_sense.inference import (
         AdaptiveBaselineModel,
+        BaselineTrustPolicy,
+        BaselineTrustState,
+        BaselineTrustEvaluator,
         PageHinkleyChangePoint,
         WindowState,
         WindowInferenceEngine,
@@ -23,6 +29,9 @@ except ImportError:
 
 __all__ = [
     "AdaptiveBaselineModel",
+    "BaselineTrustPolicy",
+    "BaselineTrustState",
+    "BaselineTrustEvaluator",
     "PageHinkleyChangePoint",
     "WindowState",
     "WindowInferenceEngine",

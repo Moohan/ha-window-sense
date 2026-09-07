@@ -75,4 +75,8 @@ class WindowSenseBinarySensor(CoordinatorEntity[WindowSenseCoordinator], BinaryS
             "humidity_alignment_score": round(data.evidence.humidity_matches_outdoor, 2),
             "local_divergence_score": round(data.evidence.local_divergence_from_ref_room, 2),
             "hvac_state": data.features.hvac_state,
+            "baseline_learning_status": data.baseline_trust.status,
+            "baseline_learning_reason": data.baseline_trust.reason,
+            "baseline_trust_factor": round(data.baseline_trust.trust_factor, 2),
+            "baseline_confidence_band": data.baseline_trust.confidence_band,
         }

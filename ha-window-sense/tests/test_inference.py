@@ -263,6 +263,189 @@ class TestInference(unittest.TestCase):
 
         self.assertTrue(engine.is_open)
 
+    def test_normal_stable_room_updates_baseline(self):
+        """1. Normal stable room behaviour updates the baseline with trusted active status."""
+        engine = WindowInferenceEngine(baseline_learning_rate=0.05)
+        t0 = 10000.0
+
+        # Feed 20 minutes of stable, clean conditions gently shifting from 21.0 to 20.9°C
+        for m in range(20):
+            temp = 21.0 - (m * 0.005)
+            state = engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=temp,
+                outdoor_temp=10.0,
+                indoor_humidity=45.0,
+                outdoor_humidity=75.0,
+            ))
+
+        # Check trust state diagnostics
+        self.assertEqual(state.baseline_trust.status, "active")
+        self.assertEqual(state.baseline_trust.confidence_band, "trusted")
+        self.assertTrue(state.baseline_trust.is_trusted)
+        self.assertTrue(state.baseline_trust.learning_allowed)
+        self.assertEqual(state.baseline_trust.trust_factor, 1.0)
+        # Baseline should have smoothly learned downward
+        self.assertLess(engine.baseline_model.expected_temp, 21.0)
+
+    def test_suspected_uncertain_event_slows_learning(self):
+        """3. A suspected but uncertain event slows learning without completely freezing."""
+        engine = WindowInferenceEngine()
+        t0 = 10000.0
+
+        # 15 minutes of stable baseline at 21.0°C
+        for m in range(15):
+            engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=21.0,
+                outdoor_temp=8.0,
+                indoor_humidity=45.0,
+                outdoor_humidity=75.0,
+            ))
+
+        # Mild perturbation: rate is ~ -0.7°C/h, within uncertain band
+        state = None
+        for m in range(15, 25):
+            state = engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=21.0 - ((m - 14) * 0.012),
+                outdoor_temp=8.0,
+                indoor_humidity=48.0,
+                outdoor_humidity=75.0,
+            ))
+
+        self.assertIsNotNone(state)
+        # In uncertain band, status must be slowed
+        self.assertEqual(state.baseline_trust.status, "slowed")
+        self.assertEqual(state.baseline_trust.confidence_band, "uncertain")
+        self.assertFalse(state.baseline_trust.is_trusted)
+        self.assertTrue(state.baseline_trust.learning_allowed)
+        self.assertGreaterEqual(state.baseline_trust.trust_factor, 0.15)
+        self.assertLessEqual(state.baseline_trust.trust_factor, 0.45)
+        # Effective learning rate is dampened
+        self.assertLess(state.baseline_trust.effective_learning_rate, engine.baseline_model.learning_rate)
+
+    def test_baseline_resumes_learning_after_stabilisation(self):
+        """4. The baseline resumes active learning after the environment recovers and stabilises."""
+        engine = WindowInferenceEngine(
+            open_threshold=0.80,
+            close_threshold=0.25,
+            open_persistence_min=3,
+            close_persistence_min=3,
+        )
+        t0 = 10000.0
+
+        # 1. Stable baseline
+        for m in range(10):
+            engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=21.0,
+                outdoor_temp=2.0,
+                indoor_humidity=45.0,
+                outdoor_humidity=85.0,
+            ))
+
+        # 2. Window open event
+        for m in range(10, 18):
+            engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=21.0 - ((m - 9) * 0.6),
+                outdoor_temp=2.0,
+                indoor_humidity=70.0,
+                outdoor_humidity=85.0,
+            ))
+        self.assertTrue(engine.is_open)
+        self.assertEqual(engine.last_state.baseline_trust.status, "frozen")
+
+        # 3. Window closed, heating back up to baseline
+        for m in range(18, 28):
+            temp = min(21.0, 16.0 + ((m - 17) * 0.5))
+            engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=temp,
+                outdoor_temp=2.0,
+                indoor_humidity=50.0,
+                outdoor_humidity=85.0,
+            ))
+        self.assertFalse(engine.is_open)
+
+        # 4. Stabilize at 21.0°C for 25 minutes past recovery quarantine & cooldown
+        state = None
+        for m in range(28, 55):
+            state = engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=21.0,
+                outdoor_temp=2.0,
+                indoor_humidity=45.0,
+                outdoor_humidity=85.0,
+            ))
+
+        # Once stabilized and past cooldown:
+        self.assertFalse(engine.baseline_model.in_recovery_quarantine)
+        self.assertEqual(state.baseline_trust.status, "active")
+        self.assertEqual(state.baseline_trust.confidence_band, "trusted")
+        self.assertTrue(state.baseline_trust.is_trusted)
+        self.assertEqual(state.baseline_trust.trust_factor, 1.0)
+
+    def test_gradual_seasonal_adaptation(self):
+        """5. A long-term gradual seasonal change is learned smoothly without false triggers."""
+        engine = WindowInferenceEngine(baseline_learning_rate=0.03)
+        t = 10000.0
+
+        # Simulate 200 time steps of very slow seasonal cooling (22.0°C down to 19.0°C)
+        # Each step shifts temp by only ~0.015°C with mild noise
+        for step in range(200):
+            t += 300.0  # 5-minute intervals
+            indoor_temp = 22.0 - (step * 0.015)
+            state = engine.process_reading(SensorReading(
+                timestamp=t,
+                indoor_temp=indoor_temp,
+                outdoor_temp=5.0,
+                indoor_humidity=45.0,
+                outdoor_humidity=75.0,
+            ))
+
+            # Never false trigger an open window during seasonal transition
+            self.assertFalse(state.is_open)
+            self.assertLess(state.confidence, 0.25)
+
+        # Baseline should have adapted down alongside the seasonal drift
+        self.assertLess(engine.baseline_model.expected_temp, 20.0)
+        self.assertGreater(engine.baseline_model.expected_temp, 18.5)
+        self.assertEqual(state.baseline_trust.status, "active")
+
+    def test_sensor_dropout_and_stale_data_freezes_learning(self):
+        """Sensor dropouts (>15 min gap), stale data, and invalid readings freeze learning."""
+        engine = WindowInferenceEngine()
+        t0 = 10000.0
+
+        for m in range(5):
+            engine.process_reading(SensorReading(
+                timestamp=t0 + (m * 60),
+                indoor_temp=21.0,
+                outdoor_temp=10.0,
+            ))
+
+        # Outage: next reading is 30 minutes later (gap of 1800s > 900s max interval)
+        stale_state = engine.process_reading(SensorReading(
+            timestamp=t0 + 4 * 60 + 1800,
+            indoor_temp=21.0,
+            outdoor_temp=10.0,
+        ))
+        self.assertEqual(stale_state.baseline_trust.status, "frozen")
+        self.assertEqual(stale_state.baseline_trust.confidence_band, "invalid")
+        self.assertIn("sensor_dropout_stale", stale_state.baseline_trust.freeze_reasons)
+
+        # Out of bounds temperature
+        invalid_state = engine.process_reading(SensorReading(
+            timestamp=t0 + 4 * 60 + 1860,
+            indoor_temp=85.0,  # Physically impossible indoor temperature
+            outdoor_temp=10.0,
+        ))
+        self.assertEqual(invalid_state.baseline_trust.status, "frozen")
+        self.assertEqual(invalid_state.baseline_trust.confidence_band, "invalid")
+        self.assertIn("indoor_temp_out_of_bounds", invalid_state.baseline_trust.freeze_reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

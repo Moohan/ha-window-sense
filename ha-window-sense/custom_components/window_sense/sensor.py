@@ -30,7 +30,59 @@ async def async_setup_entry(
         WindowSenseConfidenceSensor(coordinator, entry),
         WindowSenseThermalResidualSensor(coordinator, entry),
         WindowSenseRateSensor(coordinator, entry),
+        WindowSenseBaselineLearningSensor(coordinator, entry),
     ])
+
+
+class WindowSenseBaselineLearningSensor(CoordinatorEntity[WindowSenseCoordinator], SensorEntity):
+    """Sensor tracking whether baseline learning is currently active, slowed, or frozen."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:brain"
+
+    def __init__(self, coordinator: WindowSenseCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_name = "Baseline Learning Status"
+        self._attr_unique_id = f"{entry.entry_id}_baseline_learning_status"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.title or "Window Sense",
+        }
+
+    @property
+    def native_value(self) -> Optional[str]:
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.baseline_trust.status
+
+    @property
+    def icon(self) -> str:
+        status = self.native_value
+        if status == "active":
+            return "mdi:check-decagram-outline"
+        elif status == "slowed":
+            return "mdi:speedometer-slow"
+        return "mdi:snowflake-alert"
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        data = self.coordinator.data
+        if not data or not hasattr(data, "baseline_trust"):
+            return {}
+        trust = data.baseline_trust
+        return {
+            "is_trusted": trust.is_trusted,
+            "learning_allowed": trust.learning_allowed,
+            "trust_factor": round(trust.trust_factor, 2),
+            "effective_learning_rate": round(trust.effective_learning_rate, 5),
+            "confidence_band": trust.confidence_band,
+            "reason": trust.reason,
+            "freeze_reasons": trust.freeze_reasons,
+            "expected_room_baseline_c": round(self.coordinator.engine.baseline_model.expected_temp, 2),
+            "learned_conductance": round(self.coordinator.engine.baseline_model.learned_conductance, 4),
+            "in_recovery_quarantine": self.coordinator.engine.baseline_model.in_recovery_quarantine,
+        }
 
 
 class WindowSenseConfidenceSensor(CoordinatorEntity[WindowSenseCoordinator], SensorEntity):

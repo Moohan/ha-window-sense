@@ -22,126 +22,12 @@ from .const import (
 )
 from .features import SensorReading, ExtractedFeatures, FeatureExtractor
 from .evidence import EvidenceScore, EvidenceScorer
-
-
-class AdaptiveBaselineModel:
-    """Estimates expected room temperature equilibrium.
-    
-    Uses exponential moving average with outdoor gradient compensation,
-    strict physical slew-rate limiting, pre-event snapshot rollback,
-    and post-event recovery quarantine to prevent baseline contamination.
-    
-    CRITICAL DESIGN RULE:
-    The baseline must NOT learn that an open-window event is normal room behavior.
-    """
-
-    def __init__(
-        self,
-        initial_temp: float = 21.0,
-        learning_rate: float = DEFAULT_BASELINE_LEARNING_RATE,
-        max_slew_per_minute: float = DEFAULT_MAX_BASELINE_SLEW_PER_MIN,
-        snapshot_history_size: int = 30,
-    ):
-        self.expected_temp: float = initial_temp
-        self.learning_rate: float = learning_rate
-        self.max_slew_per_minute: float = max_slew_per_minute
-        self.is_frozen: bool = False
-        self.initialized: bool = True
-
-        # Anti-contamination snapshot rollback buffer (stores clean equilibrium baseline values)
-        self.clean_snapshots: List[float] = [initial_temp]
-        self.snapshot_history_size: int = snapshot_history_size
-
-        # Pre-event anchor to restore when window opening is confirmed
-        self.pre_event_baseline: float = initial_temp
-
-        # Post-event recovery quarantine state
-        self.in_recovery_quarantine: bool = False
-        self.recovery_sample_count: int = 0
-
-    def record_clean_snapshot(self) -> None:
-        """Records the current expected baseline as a verified clean equilibrium point."""
-        if not self.is_frozen and not self.in_recovery_quarantine:
-            self.clean_snapshots.append(self.expected_temp)
-            if len(self.clean_snapshots) > self.snapshot_history_size:
-                self.clean_snapshots.pop(0)
-
-    def on_window_open_onset(self) -> None:
-        """Rolls back baseline to clean snapshot before onset ramp began and freezes adaptation."""
-        if self.clean_snapshots:
-            # Take a snapshot from prior to the onset ramp (5-10 minutes back)
-            idx = max(0, len(self.clean_snapshots) - 6)
-            self.pre_event_baseline = self.clean_snapshots[idx]
-        else:
-            self.pre_event_baseline = self.expected_temp
-
-        self.expected_temp = self.pre_event_baseline
-        self.is_frozen = True
-        self.in_recovery_quarantine = False
-
-    def on_window_close(self) -> None:
-        """Engages recovery quarantine when window closes to prevent learning the cold room."""
-        self.is_frozen = True
-        self.in_recovery_quarantine = True
-        self.recovery_sample_count = 0
-        # Ensure expected baseline remains locked at pre-event clean equilibrium
-        self.expected_temp = self.pre_event_baseline
-
-    def update_recovery_quarantine(self, indoor_temp: float, temp_rate: float) -> bool:
-        """Evaluates whether post-window recovery quarantine can be safely disengaged.
-        
-        Returns True if still in quarantine (adaptation blocked), False if recovered.
-        """
-        if not self.in_recovery_quarantine:
-            return False
-
-        self.recovery_sample_count += 1
-
-        # Condition A: Indoor temperature has recovered to near pre-event baseline (within 0.5°C)
-        has_thermally_recovered = indoor_temp >= (self.pre_event_baseline - 0.5)
-
-        # Condition B: Extended recovery dwell (at least 35 min) and temperature is stable/warming
-        extended_dwell_reached = self.recovery_sample_count >= 35 and temp_rate > -0.2
-
-        if has_thermally_recovered or extended_dwell_reached:
-            self.in_recovery_quarantine = False
-            self.is_frozen = False
-            self.recovery_sample_count = 0
-            # Refresh clean snapshot buffer with recovered baseline
-            self.clean_snapshots = [self.expected_temp] * 5
-            return False
-
-        # Still recovering: keep baseline frozen at pre-event level
-        self.is_frozen = True
-        self.expected_temp = self.pre_event_baseline
-        return True
-
-    def update(self, indoor_temp: float, outdoor_temp: float, hvac_state: str = "idle") -> float:
-        """Updates baseline temperature model with strict anti-contamination safeguards."""
-        if not self.initialized:
-            self.expected_temp = indoor_temp
-            self.pre_event_baseline = indoor_temp
-            self.clean_snapshots = [indoor_temp] * 5
-            self.initialized = True
-            return self.expected_temp
-
-        if self.is_frozen or self.in_recovery_quarantine:
-            return self.expected_temp
-
-        # Weight adaptation based on HVAC state
-        rate = self.learning_rate
-        if hvac_state in ("heating", "cooling"):
-            rate *= 1.5
-
-        # Incorporate normal slow building drift towards outdoor equilibrium
-        target = (indoor_temp * 0.95) + (outdoor_temp * 0.05)
-        raw_delta = (target - self.expected_temp) * rate
-
-        # Physical slew-rate limit: building thermal mass prevents fast baseline collapses
-        clamped_delta = max(-self.max_slew_per_minute, min(self.max_slew_per_minute, raw_delta))
-        self.expected_temp += clamped_delta
-
-        return self.expected_temp
+from .baseline import (
+    AdaptiveBaselineModel,
+    BaselineTrustPolicy,
+    BaselineTrustState,
+    BaselineTrustEvaluator,
+)
 
 
 class PageHinkleyChangePoint:
@@ -187,6 +73,7 @@ class WindowState:
     open_persistence_counter: int
     close_persistence_counter: int
     state_changed: bool
+    baseline_trust: BaselineTrustState
 
 
 class WindowInferenceEngine:
@@ -201,6 +88,8 @@ class WindowInferenceEngine:
         baseline_learning_rate: float = DEFAULT_BASELINE_LEARNING_RATE,
         change_point_sensitivity: float = DEFAULT_CHANGE_POINT_SENSITIVITY,
         min_gradient: float = DEFAULT_MIN_GRADIENT,
+        initial_temp: float = 21.0,
+        baseline_policy: Optional[BaselineTrustPolicy] = None,
     ):
         self.open_threshold = open_threshold
         self.close_threshold = close_threshold
@@ -210,13 +99,17 @@ class WindowInferenceEngine:
 
         self.feature_extractor = FeatureExtractor(max_history_minutes=45)
         self.baseline_model = AdaptiveBaselineModel(
-            initial_temp=21.0, learning_rate=baseline_learning_rate
+            initial_temp=initial_temp,
+            learning_rate=baseline_learning_rate,
+            policy=baseline_policy,
         )
         self.change_point = PageHinkleyChangePoint(threshold=change_point_sensitivity)
 
         self.is_open: bool = False
         self.open_persistence_counter: int = 0
         self.close_persistence_counter: int = 0
+        self.last_change_point_time: Optional[float] = None
+        self.last_reading_time: Optional[float] = None
         self.last_state: Optional[WindowState] = None
 
     def process_reading(self, reading: SensorReading) -> WindowState:
@@ -234,6 +127,8 @@ class WindowInferenceEngine:
 
         # 2. Update change-point detector
         cp_active = self.change_point.update(features.thermal_residual)
+        if cp_active:
+            self.last_change_point_time = reading.timestamp
 
         # 3. Score positive and negative evidence
         evidence = EvidenceScorer.evaluate(
@@ -266,6 +161,7 @@ class WindowInferenceEngine:
                     self.is_open = False
                     self.close_persistence_counter = 0
                     self.change_point.reset()
+                    self.last_change_point_time = None
             else:
                 self.close_persistence_counter = max(0, self.close_persistence_counter - 1)
 
@@ -278,32 +174,35 @@ class WindowInferenceEngine:
         elif state_changed and not self.is_open:
             # Transitioned OPEN -> CLOSED: enter recovery quarantine to prevent learning cold room
             self.baseline_model.on_window_close()
-        elif self.is_open:
-            # Sustained open window: baseline remains strictly frozen
-            self.baseline_model.is_frozen = True
-        elif self.baseline_model.in_recovery_quarantine:
+        elif not self.is_open and self.baseline_model.in_recovery_quarantine:
             # Post-close recovery in progress: check if room has reheated to near baseline
             self.baseline_model.update_recovery_quarantine(reading.indoor_temp, features.temp_rate)
-        else:
-            # Window is closed and not in quarantine. Check for suspicious onset conditions:
-            is_suspicious = (
-                evidence.final_confidence >= 0.30
-                or self.open_persistence_counter > 0
-                or cp_active
-                or (features.temp_diff > 2.0 and features.temp_rate < -0.8)
-                or (features.temp_diff < -2.0 and features.temp_rate > 0.8)
-            )
 
-            if is_suspicious:
-                # Freeze baseline: do not adapt to suspicious rapid temperature departure
-                self.baseline_model.is_frozen = True
-            else:
-                # Clean, unperturbed closed-room equilibrium: allow slow, slew-rate-limited adaptation
-                self.baseline_model.is_frozen = False
-                self.baseline_model.update(
-                    reading.indoor_temp, reading.outdoor_temp, reading.hvac_state or "idle"
-                )
-                self.baseline_model.record_clean_snapshot()
+        # 7. Evaluate Trusted Baseline Learning (Multi-tier Confidence Bands)
+        trust_state = BaselineTrustEvaluator.evaluate(
+            reading=reading,
+            features=features,
+            evidence=evidence,
+            is_open=self.is_open,
+            in_recovery_quarantine=self.baseline_model.in_recovery_quarantine,
+            change_point_active=cp_active,
+            last_change_point_time=self.last_change_point_time,
+            last_reading_time=self.last_reading_time,
+            open_persistence_counter=self.open_persistence_counter,
+            base_learning_rate=self.baseline_model.learning_rate,
+            policy=self.baseline_model.policy,
+        )
+
+        # Update baseline model and learned thermal parameters
+        self.baseline_model.update(
+            indoor_temp=reading.indoor_temp,
+            outdoor_temp=reading.outdoor_temp,
+            hvac_state=reading.hvac_state or "idle",
+            trust_state=trust_state,
+            temp_rate=features.temp_rate,
+        )
+
+        self.last_reading_time = reading.timestamp
 
         current_state = WindowState(
             is_open=self.is_open,
@@ -318,6 +217,7 @@ class WindowInferenceEngine:
             open_persistence_counter=self.open_persistence_counter,
             close_persistence_counter=self.close_persistence_counter,
             state_changed=state_changed,
+            baseline_trust=trust_state,
         )
         self.last_state = current_state
         return current_state

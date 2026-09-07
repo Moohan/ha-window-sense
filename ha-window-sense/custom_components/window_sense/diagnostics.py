@@ -25,6 +25,8 @@ async def async_get_config_entry_diagnostics(
             "close_persistence_min": coordinator.engine.close_persistence_min,
             "baseline_expected": round(coordinator.engine.baseline_model.expected_temp, 2),
             "baseline_frozen": coordinator.engine.baseline_model.is_frozen,
+            "learned_conductance": round(coordinator.engine.baseline_model.learned_conductance, 4),
+            "in_recovery_quarantine": coordinator.engine.baseline_model.in_recovery_quarantine,
         },
     }
 
@@ -33,6 +35,16 @@ async def async_get_config_entry_diagnostics(
             "is_open": data.is_open,
             "confidence": data.confidence,
             "detection_quality": data.detection_quality,
+            "baseline_learning": {
+                "status": data.baseline_trust.status,
+                "confidence_band": data.baseline_trust.confidence_band,
+                "trust_factor": round(data.baseline_trust.trust_factor, 2),
+                "effective_learning_rate": round(data.baseline_trust.effective_learning_rate, 5),
+                "is_trusted": data.baseline_trust.is_trusted,
+                "learning_allowed": data.baseline_trust.learning_allowed,
+                "reason": data.baseline_trust.reason,
+                "freeze_reasons": data.baseline_trust.freeze_reasons,
+            },
             "thermal_residual": data.thermal_residual,
             "temperature_rate": data.temperature_rate,
             "temperature_diff": data.temperature_diff,

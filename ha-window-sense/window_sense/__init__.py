@@ -16,6 +16,13 @@ from .const import (
     QUALITY_FAIR,
     QUALITY_DEGRADED,
     QUALITY_INSUFFICIENT,
+    BASELINE_TRUST_ACTIVE,
+    BASELINE_TRUST_SLOWED,
+    BASELINE_TRUST_FROZEN,
+    BAND_TRUSTED,
+    BAND_UNCERTAIN,
+    BAND_SUSPECT,
+    BAND_INVALID,
 )
 from .features import (
     SensorReading,
@@ -27,8 +34,13 @@ from .features import (
     calc_dew_point,
 )
 from .evidence import EvidenceScore, EvidenceScorer
-from .inference import (
+from .baseline import (
     AdaptiveBaselineModel,
+    BaselineTrustPolicy,
+    BaselineTrustState,
+    BaselineTrustEvaluator,
+)
+from .inference import (
     PageHinkleyChangePoint,
     WindowState,
     WindowInferenceEngine,
@@ -49,6 +61,13 @@ __all__ = [
     "QUALITY_FAIR",
     "QUALITY_DEGRADED",
     "QUALITY_INSUFFICIENT",
+    "BASELINE_TRUST_ACTIVE",
+    "BASELINE_TRUST_SLOWED",
+    "BASELINE_TRUST_FROZEN",
+    "BAND_TRUSTED",
+    "BAND_UNCERTAIN",
+    "BAND_SUSPECT",
+    "BAND_INVALID",
     "SensorReading",
     "ExtractedFeatures",
     "FeatureExtractor",
@@ -59,6 +78,9 @@ __all__ = [
     "EvidenceScore",
     "EvidenceScorer",
     "AdaptiveBaselineModel",
+    "BaselineTrustPolicy",
+    "BaselineTrustState",
+    "BaselineTrustEvaluator",
     "PageHinkleyChangePoint",
     "WindowState",
     "WindowInferenceEngine",

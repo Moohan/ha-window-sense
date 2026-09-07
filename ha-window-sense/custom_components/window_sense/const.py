@@ -1,37 +1,16 @@
-"""Constants for the WindowSense custom integration."""
+"""Constants for Window Sense pure algorithm library."""
 
 DOMAIN = "window_sense"
 
-# Required entity keys
-CONF_INDOOR_TEMP = "indoor_temp_entity"
-CONF_OUTDOOR_TEMP = "outdoor_temp_entity"
-
-# Optional entity keys
-CONF_INDOOR_HUMIDITY = "indoor_humidity_entity"
-CONF_OUTDOOR_HUMIDITY = "outdoor_humidity_entity"
-CONF_REFERENCE_TEMP = "reference_temp_entity"
-CONF_REFERENCE_HUMIDITY = "reference_humidity_entity"
-CONF_HVAC = "hvac_entity"
-CONF_CO2 = "co2_entity"
-CONF_OCCUPANCY = "occupancy_entity"
-
-# Tuning parameters
-CONF_OPEN_THRESHOLD = "open_confidence_threshold"
-CONF_CLOSE_THRESHOLD = "close_confidence_threshold"
-CONF_OPEN_PERSISTENCE = "open_persistence_min"
-CONF_CLOSE_PERSISTENCE = "close_persistence_min"
-CONF_BASELINE_LEARNING_RATE = "baseline_learning_rate"
-CONF_CHANGE_POINT_SENSITIVITY = "change_point_sensitivity"
-CONF_MIN_GRADIENT = "min_indoor_outdoor_gradient"
-
-# Default values
+# Default algorithm thresholds and parameters
 DEFAULT_OPEN_THRESHOLD = 0.80
 DEFAULT_CLOSE_THRESHOLD = 0.25
 DEFAULT_OPEN_PERSISTENCE = 3
 DEFAULT_CLOSE_PERSISTENCE = 10
-DEFAULT_BASELINE_LEARNING_RATE = 0.05
+DEFAULT_BASELINE_LEARNING_RATE = 0.03
 DEFAULT_CHANGE_POINT_SENSITIVITY = 1.0
 DEFAULT_MIN_GRADIENT = 2.0
+DEFAULT_MAX_BASELINE_SLEW_PER_MIN = 0.015  # Max ~0.9°C/h passive drift
 
 # Detection Quality States
 QUALITY_EXCELLENT = "excellent"
@@ -39,3 +18,22 @@ QUALITY_GOOD = "good"
 QUALITY_FAIR = "fair"
 QUALITY_DEGRADED = "degraded"
 QUALITY_INSUFFICIENT = "insufficient"
+
+# Baseline Learning Trust Statuses
+BASELINE_TRUST_ACTIVE = "active"
+BASELINE_TRUST_SLOWED = "slowed"
+BASELINE_TRUST_FROZEN = "frozen"
+
+# Confidence Bands for Baseline Learning
+BAND_TRUSTED = "trusted"
+BAND_UNCERTAIN = "uncertain"
+BAND_SUSPECT = "suspect"
+BAND_INVALID = "invalid"
+
+# Default Trust Policy Thresholds
+DEFAULT_SUSPECT_CONFIDENCE_THRESHOLD = 0.60
+DEFAULT_UNCERTAIN_CONFIDENCE_THRESHOLD = 0.20
+DEFAULT_MAX_STABLE_RATE = 0.60
+DEFAULT_MAX_STABLE_RESIDUAL = 0.40
+DEFAULT_CHANGE_POINT_COOLDOWN_SEC = 600.0   # 10 minutes
+DEFAULT_MAX_SAMPLE_INTERVAL_SEC = 900.0     # 15 minutes
