@@ -1,24 +1,19 @@
 """Window Sense custom integration."""
+from __future__ import annotations
+
 import logging
 
-try:
-    from homeassistant.config_entries import ConfigEntry
-    from homeassistant.const import Platform
-    from homeassistant.core import HomeAssistant
-    from .coordinator import WindowSenseCoordinator
-
-    PLATFORMS: list[Platform] = [
-        Platform.BINARY_SENSOR,
-        Platform.SENSOR,
-    ]
-except ImportError:
-    # Allows standalone running of testbed and unit tests without full HA core installed
-    ConfigEntry = object  # type: ignore
-    HomeAssistant = object  # type: ignore
-    PLATFORMS = []  # type: ignore
-    WindowSenseCoordinator = None  # type: ignore
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .coordinator import WindowSenseCoordinator
+
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.SENSOR,
+]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:

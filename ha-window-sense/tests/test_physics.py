@@ -1,6 +1,6 @@
 """Unit tests for psychrometric and thermodynamic calculations."""
 import unittest
-from custom_components.window_sense.features import (
+from window_sense.features import (
     calc_saturation_vapor_pressure,
     calc_actual_vapor_pressure,
     calc_absolute_humidity,

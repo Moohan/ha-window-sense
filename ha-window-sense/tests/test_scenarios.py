@@ -1,7 +1,7 @@
 """Integration tests verifying behavior across full temporal scenarios."""
 import unittest
-from custom_components.window_sense.inference import WindowInferenceEngine
-from custom_components.window_sense.features import SensorReading
+from window_sense.inference import WindowInferenceEngine
+from window_sense.features import SensorReading
 
 
 class TestScenarios(unittest.TestCase):

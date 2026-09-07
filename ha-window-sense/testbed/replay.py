@@ -13,8 +13,8 @@ import os
 # Add parent directory to sys.path so custom_components can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from custom_components.window_sense.inference import WindowInferenceEngine
-from custom_components.window_sense.features import SensorReading
+from window_sense.inference import WindowInferenceEngine
+from window_sense.features import SensorReading
 
 
 def replay_fixture(readings_path: str):

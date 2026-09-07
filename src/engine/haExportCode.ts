@@ -222,22 +222,64 @@ class WindowSenseCoordinator(DataUpdateCoordinator):
     path: 'custom_components/window_sense/inference.py',
     category: 'component',
     description: 'Baseline Model, CUSUM Change-Point & Hysteresis State Machine',
-    code: `"""Core inference engine and state machine."""
+    code: `"""Core inference engine and state machine with anti-contamination baseline."""
 from dataclasses import dataclass
+from typing import List, Optional
 from .features import SensorReading, FeatureExtractor
 from .evidence import EvidenceScorer
 
 class AdaptiveBaselineModel:
-    def __init__(self, initial_temp=21.0, learning_rate=0.05):
+    """Estimates expected room temperature equilibrium with anti-contamination safeguards."""
+    def __init__(self, initial_temp=21.0, learning_rate=0.03, max_slew_per_min=0.015):
         self.expected_temp = initial_temp
         self.learning_rate = learning_rate
+        self.max_slew_per_minute = max_slew_per_min
         self.is_frozen = False
+        self.clean_snapshots = [initial_temp] * 5
+        self.pre_event_baseline = initial_temp
+        self.in_recovery_quarantine = False
+        self.recovery_counter = 0
 
-    def update(self, indoor_t, outdoor_t):
-        if self.is_frozen:
+    def record_clean_snapshot(self):
+        if not self.is_frozen and not self.in_recovery_quarantine:
+            self.clean_snapshots.append(self.expected_temp)
+            if len(self.clean_snapshots) > 30:
+                self.clean_snapshots.pop(0)
+
+    def on_window_open(self):
+        idx = max(0, len(self.clean_snapshots) - 6)
+        self.pre_event_baseline = self.clean_snapshots[idx] if self.clean_snapshots else self.expected_temp
+        self.expected_temp = self.pre_event_baseline
+        self.is_frozen = True
+        self.in_recovery_quarantine = False
+
+    def on_window_close(self):
+        self.is_frozen = True
+        self.in_recovery_quarantine = True
+        self.recovery_counter = 0
+        self.expected_temp = self.pre_event_baseline
+
+    def update_recovery(self, indoor_t, temp_rate):
+        if not self.in_recovery_quarantine:
+            return False
+        self.recovery_counter += 1
+        if indoor_t >= (self.pre_event_baseline - 0.5) or (self.recovery_counter >= 35 and temp_rate > -0.2):
+            self.in_recovery_quarantine = False
+            self.is_frozen = False
+            self.clean_snapshots = [self.expected_temp] * 5
+            return False
+        self.is_frozen = True
+        self.expected_temp = self.pre_event_baseline
+        return True
+
+    def update(self, indoor_t, outdoor_t, hvac_state="idle"):
+        if self.is_frozen or self.in_recovery_quarantine:
             return self.expected_temp
-        target = (indoor_t * 0.92) + (outdoor_t * 0.08)
-        self.expected_temp = (self.expected_temp * (1.0 - self.learning_rate)) + (target * self.learning_rate)
+        rate = self.learning_rate * (1.5 if hvac_state in ("heating", "cooling") else 1.0)
+        target = (indoor_t * 0.95) + (outdoor_t * 0.05)
+        raw_delta = (target - self.expected_temp) * rate
+        clamped_delta = max(-self.max_slew_per_minute, min(self.max_slew_per_minute, raw_delta))
+        self.expected_temp += clamped_delta
         return self.expected_temp
 
 class PageHinkleyChangePoint:
@@ -268,12 +310,11 @@ class WindowInferenceEngine:
 
     def process_reading(self, reading: SensorReading):
         self.feature_extractor.add_reading(reading)
-        self.baseline_model.is_frozen = self.is_open
-        baseline = self.baseline_model.update(reading.indoor_temp, reading.outdoor_temp)
-        features = self.feature_extractor.extract(baseline)
+        features = self.feature_extractor.extract(self.baseline_model.expected_temp)
         cp_active = self.change_point.update(features.thermal_residual)
-        evidence = EvidenceScorer.evaluate(features, cp_active)
+        evidence = EvidenceScorer.evaluate(features, cp_active, is_currently_open=self.is_open)
 
+        prev_is_open = self.is_open
         if not self.is_open:
             if evidence.final_confidence >= self.open_threshold:
                 self.open_counter += 1
@@ -290,6 +331,29 @@ class WindowInferenceEngine:
                     self.close_counter = 0
             else:
                 self.close_counter = max(0, self.close_counter - 1)
+
+        state_changed = prev_is_open != self.is_open
+        if state_changed and self.is_open:
+            self.baseline_model.on_window_open()
+        elif state_changed and not self.is_open:
+            self.baseline_model.on_window_close()
+        elif self.is_open:
+            self.baseline_model.is_frozen = True
+        elif self.baseline_model.in_recovery_quarantine:
+            self.baseline_model.update_recovery(reading.indoor_temp, features.temp_rate)
+        else:
+            is_suspicious = (
+                evidence.final_confidence >= 0.30
+                or self.open_counter > 0
+                or cp_active
+                or (features.temp_diff > 2.0 and features.temp_rate < -0.8)
+            )
+            if is_suspicious:
+                self.baseline_model.is_frozen = True
+            else:
+                self.baseline_model.is_frozen = False
+                self.baseline_model.update(reading.indoor_temp, reading.outdoor_temp, reading.hvac_state or "idle")
+                self.baseline_model.record_clean_snapshot()
 
         return type("State", (), {
             "is_open": self.is_open,

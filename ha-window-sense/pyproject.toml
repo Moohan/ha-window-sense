@@ -5,18 +5,32 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ha-window-sense"
 version = "1.0.0"
-description = "Home Assistant custom integration for Window Sense"
+description = "Window Sense: Thermodynamic inference engine and Home Assistant custom integration"
 readme = "README.md"
 authors = [{ name = "Window Sense Community" }]
 license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+ha = [
+    "homeassistant>=2024.1.0",
+    "pytest-homeassistant-custom-component>=0.13.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/custom-components/ha-window-sense"
 Issues = "https://github.com/custom-components/ha-window-sense/issues"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["window_sense*", "custom_components*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["custom_components"]
+pythonpath = [".", "custom_components"]
 addopts = "-v"

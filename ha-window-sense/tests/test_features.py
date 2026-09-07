@@ -1,6 +1,6 @@
 """Unit tests for rolling feature extraction and derivatives."""
 import unittest
-from custom_components.window_sense.features import (
+from window_sense.features import (
     SensorReading,
     FeatureExtractor,
     calc_absolute_humidity,
