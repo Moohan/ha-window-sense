@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha-window-sense"
+version = "1.0.0"
+description = "Home Assistant custom integration for Window Sense"
+readme = "README.md"
+authors = [{ name = "Window Sense Community" }]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/custom-components/ha-window-sense"
+Issues = "https://github.com/custom-components/ha-window-sense/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["custom_components"]
+addopts = "-v"

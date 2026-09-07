@@ -1,0 +1,53 @@
+{
+  "version": "1.0",
+  "scenarios": [
+    {
+      "id": "winter_shock",
+      "name": "Winter Cold Shock",
+      "category": "True Positive",
+      "description": "Rapid window opening on a cold winter day (Indoor 21.5°C, Outdoor 1.0°C).",
+      "duration_minutes": 60,
+      "window_open_periods": [{ "start_min": 15, "end_min": 30 }]
+    },
+    {
+      "id": "summer_rush",
+      "name": "Summer Warm Air Rush",
+      "category": "True Positive",
+      "description": "Hot summer breeze rushing into an air-conditioned room (Indoor 21.0°C, Outdoor 31.0°C).",
+      "duration_minutes": 60,
+      "window_open_periods": [{ "start_min": 12, "end_min": 28 }]
+    },
+    {
+      "id": "tilt_trickle",
+      "name": "Partial Tilt / Trickle Vent",
+      "category": "True Positive",
+      "description": "Slight tilt draft creating gentle persistent divergence (Indoor 21.0°C, Outdoor 6.0°C).",
+      "duration_minutes": 75,
+      "window_open_periods": [{ "start_min": 15, "end_min": 50 }]
+    },
+    {
+      "id": "radiator_cycle_off",
+      "name": "Radiator / Setback Cycle-Off",
+      "category": "False Positive Candidate",
+      "description": "HVAC heating cycles off, causing building envelope thermal cooling.",
+      "duration_minutes": 60,
+      "window_open_periods": []
+    },
+    {
+      "id": "shower_steam",
+      "name": "En-Suite Shower Steam Spike",
+      "category": "False Positive Candidate",
+      "description": "Hot shower rapidly spikes humidity without temperature drop.",
+      "duration_minutes": 45,
+      "window_open_periods": []
+    },
+    {
+      "id": "kitchen_cooking",
+      "name": "Kitchen Cooking Heat & Steam",
+      "category": "False Positive Candidate",
+      "description": "Stove or oven heating with cooking moisture.",
+      "duration_minutes": 60,
+      "window_open_periods": []
+    }
+  ]
+}

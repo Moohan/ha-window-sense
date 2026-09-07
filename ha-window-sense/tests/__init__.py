@@ -1,0 +1,1 @@
+"""WindowSense test suite."""

@@ -65,7 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-semibold text-slate-900 tracking-tight">
-                  Inferred Window Detection
+                  Window Sense
                 </h1>
                 <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono font-medium border border-slate-200">
                   Home Assistant Integration

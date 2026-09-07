@@ -13,6 +13,8 @@ import {
 } from 'recharts';
 import { AlgorithmConfig, InferredState, TestScenario } from '../types';
 
+const TypedReferenceArea = ReferenceArea as unknown as React.ComponentType<any>;
+
 interface ChartPoint {
   timeMin: number;
   indoorTemp: number;
@@ -118,16 +120,14 @@ export const SignalVisualizer: React.FC<SignalVisualizerProps> = ({
 
               {/* Shaded actual window open areas from scenario */}
               {scenario.windowOpenPeriods.map((period, i) => (
-                <ReferenceArea
-                  {...({
-                    key: `window-period-${i}`,
-                    x1: period.startMin,
-                    x2: period.endMin,
-                    fill: "#f59e0b",
-                    fillOpacity: 0.12,
-                    stroke: "#d97706",
-                    strokeDasharray: "2 2"
-                  } as any)}
+                <TypedReferenceArea
+                  key={`window-period-${i}`}
+                  x1={period.startMin}
+                  x2={period.endMin}
+                  fill="#f59e0b"
+                  fillOpacity={0.12}
+                  stroke="#d97706"
+                  strokeDasharray="2 2"
                 />
               ))}
 

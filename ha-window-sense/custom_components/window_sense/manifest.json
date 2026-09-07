@@ -1,0 +1,11 @@
+{
+  "domain": "window_sense",
+  "name": "Window Sense",
+  "codeowners": ["@community"],
+  "config_flow": true,
+  "documentation": "https://github.com/custom-components/ha-window-sense",
+  "integration_type": "helper",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/custom-components/ha-window-sense/issues",
+  "version": "1.0.0"
+}

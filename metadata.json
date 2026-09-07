@@ -1,6 +1,6 @@
 {
-  "name": "Inferred Window-Open Detection",
-  "description": "Home Assistant integration and testbed for inferring window state from thermal dynamics, environmental sensors, and adaptive baseline models.",
+  "name": "Window Sense",
+  "description": "Home Assistant custom integration and testbed for inferring window state from thermal dynamics, environmental sensors, and adaptive baseline models.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
