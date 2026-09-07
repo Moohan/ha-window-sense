@@ -358,7 +358,7 @@ class TestInference(unittest.TestCase):
         self.assertEqual(engine.last_state.baseline_trust.status, "frozen")
 
         # 3. Window closed, heating back up to baseline
-        for m in range(18, 28):
+        for m in range(18, 30):
             temp = min(21.0, 16.0 + ((m - 17) * 0.5))
             engine.process_reading(SensorReading(
                 timestamp=t0 + (m * 60),
@@ -371,7 +371,7 @@ class TestInference(unittest.TestCase):
 
         # 4. Stabilize at 21.0°C for 25 minutes past recovery quarantine & cooldown
         state = None
-        for m in range(28, 55):
+        for m in range(30, 55):
             state = engine.process_reading(SensorReading(
                 timestamp=t0 + (m * 60),
                 indoor_temp=21.0,
@@ -389,7 +389,7 @@ class TestInference(unittest.TestCase):
 
     def test_gradual_seasonal_adaptation(self):
         """5. A long-term gradual seasonal change is learned smoothly without false triggers."""
-        engine = WindowInferenceEngine(baseline_learning_rate=0.03)
+        engine = WindowInferenceEngine(initial_temp=22.0, baseline_learning_rate=0.03)
         t = 10000.0
 
         # Simulate 200 time steps of very slow seasonal cooling (22.0°C down to 19.0°C)
