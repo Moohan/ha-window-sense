@@ -458,7 +458,8 @@ class AdaptiveBaselineModel:
         if hvac_state in ("heating", "cooling"):
             effective_lr *= 1.5
 
-        step_lr = 1.0 - ((1.0 - effective_lr) ** dt_min)
+        clamped_effective_lr = min(0.99, max(0.0, effective_lr))
+        step_lr = 1.0 - ((1.0 - clamped_effective_lr) ** dt_min)
         target = indoor_temp
         raw_delta = (target - self.expected_temp) * step_lr
 

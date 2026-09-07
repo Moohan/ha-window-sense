@@ -37,3 +37,18 @@ DEFAULT_MAX_STABLE_RATE = 0.60
 DEFAULT_MAX_STABLE_RESIDUAL = 0.40
 DEFAULT_CHANGE_POINT_COOLDOWN_SEC = 600.0   # 10 minutes
 DEFAULT_MAX_SAMPLE_INTERVAL_SEC = 900.0     # 15 minutes
+
+
+# Configuration keys
+CONF_INDOOR_TEMP = "indoor_temp_sensor"
+CONF_OUTDOOR_TEMP = "outdoor_temp_sensor"
+CONF_INDOOR_HUMIDITY = "indoor_humidity_sensor"
+CONF_OUTDOOR_HUMIDITY = "outdoor_humidity_sensor"
+CONF_REFERENCE_TEMP = "reference_temp_sensor"
+CONF_HVAC = "hvac_sensor"
+CONF_OPEN_THRESHOLD = "open_threshold"
+CONF_CLOSE_THRESHOLD = "close_threshold"
+CONF_OPEN_PERSISTENCE = "open_persistence"
+CONF_CLOSE_PERSISTENCE = "close_persistence"
+CONF_BASELINE_LEARNING_RATE = "baseline_learning_rate"
+CONF_CHANGE_POINT_SENSITIVITY = "change_point_sensitivity"

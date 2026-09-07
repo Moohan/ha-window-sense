@@ -13,6 +13,11 @@ jobs:
   validate-hacs:
     runs-on: "ubuntu-latest"
     steps:
+      - uses: actions/checkout@v4
+      - name: Prepare HACS layout
+        run: |
+          cp -r ha-window-sense/custom_components custom_components
+          cp ha-window-sense/hacs.json hacs.json
       - name: HACS validation
         uses: "hacs/action@main"
         with:
