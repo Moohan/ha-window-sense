@@ -1,0 +1,45 @@
+"""Constants for Window Sense pure algorithm library."""
+
+DOMAIN = "window_sense"
+
+# Default algorithm thresholds and parameters
+DEFAULT_OPEN_THRESHOLD = 0.80
+DEFAULT_CLOSE_THRESHOLD = 0.25
+DEFAULT_OPEN_PERSISTENCE = 3
+DEFAULT_CLOSE_PERSISTENCE = 10
+DEFAULT_BASELINE_LEARNING_RATE = 0.03
+DEFAULT_CHANGE_POINT_SENSITIVITY = 1.0
+DEFAULT_MIN_GRADIENT = 2.0
+DEFAULT_MAX_BASELINE_SLEW_PER_MIN = 0.015  # Max ~0.9°C/h passive drift
+
+# Inference Readiness / Data Quality Levels
+INFERENCE_STATUS_VALID = "valid"
+INFERENCE_STATUS_DEGRADED = "degraded"
+INFERENCE_STATUS_INSUFFICIENT_DATA = "insufficient_data"
+
+# Detection Quality States
+QUALITY_EXCELLENT = "excellent"
+QUALITY_GOOD = "good"
+QUALITY_FAIR = "fair"
+QUALITY_DEGRADED = "degraded"
+QUALITY_INSUFFICIENT = "insufficient"
+
+# Baseline Learning Trust Statuses
+BASELINE_TRUST_ACTIVE = "active"
+BASELINE_TRUST_SLOWED = "slowed"
+BASELINE_TRUST_FROZEN = "frozen"
+
+# Confidence Bands for Baseline Learning
+BAND_TRUSTED = "trusted"
+BAND_UNCERTAIN = "uncertain"
+BAND_SUSPECT = "suspect"
+BAND_INVALID = "invalid"
+
+# Default Trust Policy Thresholds
+DEFAULT_SUSPECT_CONFIDENCE_THRESHOLD = 0.60
+DEFAULT_UNCERTAIN_CONFIDENCE_THRESHOLD = 0.20
+DEFAULT_MAX_STABLE_RATE = 0.60
+DEFAULT_MAX_STABLE_RESIDUAL = 0.40
+DEFAULT_CHANGE_POINT_COOLDOWN_SEC = 600.0   # 10 minutes
+DEFAULT_MAX_SAMPLE_INTERVAL_SEC = 900.0     # 15 minutes max gap between consecutive samples
+DEFAULT_MAX_SENSOR_STALE_SEC = 1800.0       # 30 minutes max age for sensor updates
