@@ -451,14 +451,14 @@ class AdaptiveBaselineModel:
         if self.is_frozen or self.in_recovery_quarantine or not self.trust_state.learning_allowed:
             return self.expected_temp
 
-        dt_min = max(0.1, min(15.0, dt_sec / 60.0))
+        dt_min = max(0.0, min(15.0, dt_sec / 60.0))
 
         # Calculate effective adaptation rate using trust factor and interval dt
         effective_lr = self.trust_state.effective_learning_rate
         if hvac_state in ("heating", "cooling"):
             effective_lr *= 1.5
 
-        clamped_effective_lr = min(0.99, max(0.0, effective_lr))
+        clamped_effective_lr = min(1.0 - 1e-9, max(0.0, effective_lr))
         step_lr = 1.0 - ((1.0 - clamped_effective_lr) ** dt_min)
         target = indoor_temp
         raw_delta = (target - self.expected_temp) * step_lr
