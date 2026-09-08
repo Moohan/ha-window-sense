@@ -427,6 +427,7 @@ class AdaptiveBaselineModel:
         hvac_state: str = "idle",
         trust_state: Optional[BaselineTrustState] = None,
         temp_rate: float = 0.0,
+        dt_sec: float = 60.0,
     ) -> float:
         """Updates baseline model and learned thermal behaviour variables.
         
@@ -450,17 +451,21 @@ class AdaptiveBaselineModel:
         if self.is_frozen or self.in_recovery_quarantine or not self.trust_state.learning_allowed:
             return self.expected_temp
 
-        # Calculate effective adaptation rate using trust factor
+        dt_min = max(0.0, min(15.0, dt_sec / 60.0))
+
+        # Calculate effective adaptation rate using trust factor and interval dt
         effective_lr = self.trust_state.effective_learning_rate
         if hvac_state in ("heating", "cooling"):
             effective_lr *= 1.5
 
-        # Incorporate normal slow building drift towards outdoor equilibrium
-        target = (indoor_temp * 0.95) + (outdoor_temp * 0.05)
-        raw_delta = (target - self.expected_temp) * effective_lr
+        clamped_effective_lr = min(1.0 - 1e-9, max(0.0, effective_lr))
+        step_lr = 1.0 - ((1.0 - clamped_effective_lr) ** dt_min)
+        target = indoor_temp
+        raw_delta = (target - self.expected_temp) * step_lr
 
         # Physical slew-rate limit: building thermal mass prevents fast baseline collapses
-        clamped_delta = max(-self.max_slew_per_minute, min(self.max_slew_per_minute, raw_delta))
+        max_slew = self.max_slew_per_minute * dt_min
+        clamped_delta = max(-max_slew, min(max_slew, raw_delta))
         self.expected_temp += clamped_delta
 
         # Update learned building conductance (U-value) ONLY during active, trusted free-floating periods

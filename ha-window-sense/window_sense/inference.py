@@ -194,12 +194,14 @@ class WindowInferenceEngine:
         )
 
         # Update baseline model and learned thermal parameters
+        dt_sec = (reading.timestamp - self.last_reading_time) if self.last_reading_time is not None else 60.0
         self.baseline_model.update(
             indoor_temp=reading.indoor_temp,
             outdoor_temp=reading.outdoor_temp,
             hvac_state=reading.hvac_state or "idle",
             trust_state=trust_state,
             temp_rate=features.temp_rate,
+            dt_sec=dt_sec,
         )
 
         self.last_reading_time = reading.timestamp
