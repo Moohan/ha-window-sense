@@ -15,10 +15,15 @@ from .const import (
     DEFAULT_CHANGE_POINT_SENSITIVITY,
     DEFAULT_MIN_GRADIENT,
     DEFAULT_MAX_BASELINE_SLEW_PER_MIN,
+    DEFAULT_MAX_SENSOR_STALE_SEC,
+    INFERENCE_STATUS_VALID,
+    INFERENCE_STATUS_DEGRADED,
+    INFERENCE_STATUS_INSUFFICIENT_DATA,
     QUALITY_EXCELLENT,
     QUALITY_GOOD,
     QUALITY_FAIR,
     QUALITY_DEGRADED,
+    QUALITY_INSUFFICIENT,
 )
 from .features import SensorReading, ExtractedFeatures, FeatureExtractor
 from .evidence import EvidenceScore, EvidenceScorer
@@ -47,7 +52,15 @@ class PageHinkleyChangePoint:
 
     def update(self, residual: float) -> bool:
         """Updates cumulative sum and checks if inflection exceeded threshold."""
-        self.sum_val += abs(residual) - self.alpha
+        abs_res = abs(residual)
+        if abs_res < 0.2:
+            self.sum_val = max(0.0, self.sum_val - self.alpha)
+            if self.sum_val < self.min_val:
+                self.min_val = self.sum_val
+            self.is_triggered = False
+            return False
+
+        self.sum_val += abs_res - self.alpha
         if self.sum_val < self.min_val:
             self.min_val = self.sum_val
 
@@ -64,6 +77,7 @@ class WindowState:
     is_open: bool
     confidence: float
     detection_quality: str
+    inference_status: str             # "valid" | "degraded" | "insufficient_data"
     thermal_residual: float
     temperature_rate: float
     temperature_diff: float
@@ -112,25 +126,107 @@ class WindowInferenceEngine:
         self.last_reading_time: Optional[float] = None
         self.last_state: Optional[WindowState] = None
 
+    def _determine_status_and_quality(
+        self, reading: SensorReading, features: ExtractedFeatures
+    ) -> tuple[str, str, Optional[str]]:
+        """Evaluates data readiness and quality."""
+        if reading.indoor_temp is None or math.isnan(reading.indoor_temp) or math.isinf(reading.indoor_temp):
+            return INFERENCE_STATUS_INSUFFICIENT_DATA, QUALITY_INSUFFICIENT, "Indoor temperature sensor value unavailable or non-numeric."
+
+        if features.indoor_stale_sec > DEFAULT_MAX_SENSOR_STALE_SEC:
+            return INFERENCE_STATUS_INSUFFICIENT_DATA, QUALITY_INSUFFICIENT, f"Indoor temperature sensor stale ({int(features.indoor_stale_sec / 60)}m since last update)."
+
+        if reading.outdoor_temp is None or math.isnan(reading.outdoor_temp) or math.isinf(reading.outdoor_temp):
+            return INFERENCE_STATUS_INSUFFICIENT_DATA, QUALITY_INSUFFICIENT, "Outdoor temperature sensor value unavailable or non-numeric."
+
+        if features.outdoor_stale_sec > DEFAULT_MAX_SENSOR_STALE_SEC:
+            return INFERENCE_STATUS_INSUFFICIENT_DATA, QUALITY_INSUFFICIENT, f"Outdoor temperature sensor stale ({int(features.outdoor_stale_sec / 60)}m since last update)."
+
+        if features.sample_count < 3:
+            return INFERENCE_STATUS_INSUFFICIENT_DATA, QUALITY_INSUFFICIENT, f"Insufficient history samples ({features.sample_count}/3 required)."
+
+        if features.post_outage_suppressed:
+            return INFERENCE_STATUS_DEGRADED, QUALITY_DEGRADED, "Recent sensor outage/gap detected; rate derivatives temporarily suppressed."
+
+        has_humidity = (
+            reading.indoor_humidity is not None
+            and not math.isnan(reading.indoor_humidity)
+            and reading.outdoor_humidity is not None
+            and not math.isnan(reading.outdoor_humidity)
+        )
+        has_ref = (
+            reading.reference_temp is not None
+            and not math.isnan(reading.reference_temp)
+        )
+
+        if has_humidity and has_ref:
+            return INFERENCE_STATUS_VALID, QUALITY_EXCELLENT, None
+        elif has_humidity or has_ref:
+            return INFERENCE_STATUS_VALID, QUALITY_GOOD, None
+
+        return INFERENCE_STATUS_VALID, QUALITY_FAIR, None
+
     def process_reading(self, reading: SensorReading) -> WindowState:
         """Processes an incoming sensor reading and updates the inferred state machine."""
         self.feature_extractor.add_reading(reading)
 
-        # Initialize baseline on very first reading if not yet initialized
-        if not self.baseline_model.initialized:
+        if not self.baseline_model.initialized and reading.indoor_temp is not None and not math.isnan(reading.indoor_temp):
+            outdoor = reading.outdoor_temp if (reading.outdoor_temp is not None and not math.isnan(reading.outdoor_temp)) else reading.indoor_temp
             self.baseline_model.update(
-                reading.indoor_temp, reading.outdoor_temp, reading.hvac_state or "idle"
+                reading.indoor_temp, outdoor, reading.hvac_state or "idle"
             )
 
-        # 1. Extract rolling temporal and psychrometric features using current expected baseline
         features = self.feature_extractor.extract(self.baseline_model.expected_temp)
 
-        # 2. Update change-point detector
-        cp_active = self.change_point.update(features.thermal_residual)
+        inf_status, quality, deficiency_reason = self._determine_status_and_quality(reading, features)
+
+        if inf_status == INFERENCE_STATUS_INSUFFICIENT_DATA:
+            cp_active = False
+            evidence = EvidenceScore(primary_reason=f"Insufficient data: {deficiency_reason}")
+
+            trust_state = BaselineTrustEvaluator.evaluate(
+                reading=reading,
+                features=features,
+                evidence=evidence,
+                is_open=self.is_open,
+                in_recovery_quarantine=self.baseline_model.in_recovery_quarantine,
+                change_point_active=False,
+                last_change_point_time=self.last_change_point_time,
+                last_reading_time=self.last_reading_time,
+                open_persistence_counter=self.open_persistence_counter,
+                base_learning_rate=self.baseline_model.learning_rate,
+                policy=self.baseline_model.policy,
+            )
+
+            current_state = WindowState(
+                is_open=self.is_open,
+                confidence=0.0,
+                detection_quality=quality,
+                inference_status=inf_status,
+                thermal_residual=features.thermal_residual,
+                temperature_rate=0.0,
+                temperature_diff=features.temp_diff,
+                evidence=evidence,
+                features=features,
+                primary_reason=evidence.primary_reason,
+                open_persistence_counter=self.open_persistence_counter,
+                close_persistence_counter=self.close_persistence_counter,
+                state_changed=False,
+                baseline_trust=trust_state,
+            )
+            self.last_reading_time = reading.timestamp if (reading.timestamp is not None and not math.isnan(reading.timestamp)) else self.last_reading_time
+            self.last_state = current_state
+            return current_state
+
+        if abs(features.temp_rate) >= 0.3 or features.temp_diff < 0:
+            cp_active = self.change_point.update(-features.thermal_residual)
+        else:
+            self.change_point.reset()
+            cp_active = False
+
         if cp_active:
             self.last_change_point_time = reading.timestamp
 
-        # 3. Score positive and negative evidence
         evidence = EvidenceScorer.evaluate(
             features=features,
             change_point_active=cp_active,
@@ -138,14 +234,9 @@ class WindowInferenceEngine:
             is_currently_open=self.is_open,
         )
 
-        # 4. Determine detection quality based on sensor availability
-        quality = self._assess_quality(reading, features)
-
-        # 5. Evaluate asymmetric hysteresis state machine
         prev_is_open = self.is_open
 
         if not self.is_open:
-            # Condition to enter OPEN state
             if evidence.final_confidence >= self.open_threshold:
                 self.open_persistence_counter += 1
                 if self.open_persistence_counter >= self.open_persistence_min:
@@ -154,7 +245,6 @@ class WindowInferenceEngine:
             else:
                 self.open_persistence_counter = max(0, self.open_persistence_counter - 1)
         else:
-            # Condition to return to CLOSED state
             if evidence.final_confidence <= self.close_threshold:
                 self.close_persistence_counter += 1
                 if self.close_persistence_counter >= self.close_persistence_min:
@@ -167,18 +257,18 @@ class WindowInferenceEngine:
 
         state_changed = prev_is_open != self.is_open
 
-        # 6. Anti-Contamination Baseline Lifecycle Management
         if state_changed and self.is_open:
-            # Transitioned CLOSED -> OPEN: rollback to clean pre-event baseline and freeze
             self.baseline_model.on_window_open_onset()
         elif state_changed and not self.is_open:
-            # Transitioned OPEN -> CLOSED: enter recovery quarantine to prevent learning cold room
             self.baseline_model.on_window_close()
+            self.change_point.reset()
+            self.last_change_point_time = None
         elif not self.is_open and self.baseline_model.in_recovery_quarantine:
-            # Post-close recovery in progress: check if room has reheated to near baseline
-            self.baseline_model.update_recovery_quarantine(reading.indoor_temp, features.temp_rate)
+            still_quarantined = self.baseline_model.update_recovery_quarantine(reading.indoor_temp, features.temp_rate)
+            if not still_quarantined:
+                self.change_point.reset()
+                self.last_change_point_time = None
 
-        # 7. Evaluate Trusted Baseline Learning (Multi-tier Confidence Bands)
         trust_state = BaselineTrustEvaluator.evaluate(
             reading=reading,
             features=features,
@@ -193,7 +283,6 @@ class WindowInferenceEngine:
             policy=self.baseline_model.policy,
         )
 
-        # Update baseline model and learned thermal parameters
         self.baseline_model.update(
             indoor_temp=reading.indoor_temp,
             outdoor_temp=reading.outdoor_temp,
@@ -208,6 +297,7 @@ class WindowInferenceEngine:
             is_open=self.is_open,
             confidence=evidence.final_confidence,
             detection_quality=quality,
+            inference_status=inf_status,
             thermal_residual=features.thermal_residual,
             temperature_rate=features.temp_rate,
             temperature_diff=features.temp_diff,
@@ -221,21 +311,3 @@ class WindowInferenceEngine:
         )
         self.last_state = current_state
         return current_state
-
-    def _assess_quality(self, reading: SensorReading, features: ExtractedFeatures) -> str:
-        """Determines quality rating based on sensor complement and sample health."""
-        if features.sample_count < 3:
-            return QUALITY_DEGRADED
-
-        has_humidity = (
-            reading.indoor_humidity is not None and reading.outdoor_humidity is not None
-        )
-        has_ref = reading.reference_temp is not None
-
-        if has_humidity and has_ref:
-            return QUALITY_EXCELLENT
-        elif has_humidity:
-            return QUALITY_GOOD
-        elif has_ref:
-            return QUALITY_GOOD
-        return QUALITY_FAIR

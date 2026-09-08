@@ -43,6 +43,11 @@ class EvidenceScorer:
         is_cooling = features.temp_rate < -0.3
         is_heating_from_outside = features.temp_rate > 0.3 and features.temp_diff < -2.0
 
+        is_recovering_towards_baseline = (
+            (features.thermal_residual < -0.2 and features.temp_rate > 0.1)
+            or (features.thermal_residual > 0.2 and features.temp_rate < -0.1)
+        )
+
         # --- Positive Evidence ---
 
         # 1. Rapid Thermal Drift Rate (towards outdoor air)
@@ -69,8 +74,9 @@ class EvidenceScorer:
 
         # 2. Thermal Residual Departure from learned baseline
         abs_residual = abs(features.thermal_residual)
-        if abs_residual > 0.4:
-            ev.thermal_residual_departure = min(1.0, abs_residual / 1.5)
+        if not is_recovering_towards_baseline and abs_residual > 0.4:
+            if abs(features.temp_rate) >= 0.3 or change_point_active or is_currently_open:
+                ev.thermal_residual_departure = min(1.0, (abs_residual - 0.2) / 1.5)
 
         # 3. Sustained Thermal Gradient to outside air
         if abs_temp_diff >= min_gradient:
@@ -83,18 +89,19 @@ class EvidenceScorer:
             ev.change_point_triggered = 1.0
 
         # 5. Sustained open anomaly (when window is open, large residual confirms continued open state)
-        if is_currently_open and abs_residual > 1.5 and abs_temp_diff > 2.0:
+        if is_currently_open and not is_recovering_towards_baseline and abs_residual > 1.5 and abs_temp_diff > 2.0:
             ev.sustained_open_anomaly = min(1.0, abs_residual / 3.0)
 
         # 6. Psychrometric Outdoor Humidity Coupling
         if features.indoor_abs_humidity is not None and features.outdoor_abs_humidity is not None:
-            ah_diff = features.indoor_abs_humidity - features.outdoor_abs_humidity
-            if abs(ah_diff) < 1.2:
-                ev.humidity_matches_outdoor = 0.9
-            elif features.humidity_delta_5m < -0.3 and features.indoor_abs_humidity > features.outdoor_abs_humidity:
-                ev.humidity_matches_outdoor = 0.8
-            elif features.humidity_delta_5m > 0.3 and features.indoor_abs_humidity < features.outdoor_abs_humidity:
-                ev.humidity_matches_outdoor = 0.8
+            if abs(features.temp_rate) >= 0.3 or change_point_active or is_currently_open:
+                ah_diff = features.indoor_abs_humidity - features.outdoor_abs_humidity
+                if abs(ah_diff) < 1.2:
+                    ev.humidity_matches_outdoor = 0.9
+                elif features.humidity_delta_5m < -0.3 and features.indoor_abs_humidity > features.outdoor_abs_humidity:
+                    ev.humidity_matches_outdoor = 0.8
+                elif features.humidity_delta_5m > 0.3 and features.indoor_abs_humidity < features.outdoor_abs_humidity:
+                    ev.humidity_matches_outdoor = 0.8
 
         # 7. Local Divergence from Reference Room
         if features.has_ref_sensor:
@@ -105,15 +112,12 @@ class EvidenceScorer:
 
         # --- Negative Evidence (False Positive Suppression) ---
 
-        # Suppress if outdoor temperature cannot physically explain observed cooling
         if is_cooling and features.outdoor_rate > 1.0 and features.temp_diff < 0.5:
             ev.outdoor_cannot_explain_cooling = 0.8
 
-        # Suppress if shower moisture spike (indoor humidity spikes while temperature stays warm)
         if features.humidity_delta_5m > 1.5 and features.temp_rate > -0.2:
             ev.internal_moisture_source = 0.95
 
-        # Suppress if radiator just cycled off (exponential thermal decay with idle hvac)
         if (
             features.hvac_state == "idle"
             and -1.2 < features.temp_rate < -0.2
@@ -127,7 +131,7 @@ class EvidenceScorer:
         total_weight = 0.0
 
         # Rate evidence
-        effective_rate_score = max(ev.rapid_cooling_faster_than_expected, ev.sustained_open_anomaly * 0.8)
+        effective_rate_score = max(ev.rapid_cooling_faster_than_expected, ev.sustained_open_anomaly * 0.90)
         pos_score += effective_rate_score * 0.30
         total_weight += 0.30
 
@@ -136,7 +140,7 @@ class EvidenceScorer:
         total_weight += 0.35
 
         # Change-point evidence
-        effective_cp = max(ev.change_point_triggered, ev.sustained_open_anomaly * 0.7)
+        effective_cp = max(ev.change_point_triggered, ev.sustained_open_anomaly * 0.80)
         pos_score += effective_cp * 0.15
         total_weight += 0.15
 
@@ -152,7 +156,6 @@ class EvidenceScorer:
 
         raw_pos = pos_score / max(0.1, total_weight)
 
-        # Thermal gradient gate: suppress if temperature gradient is too weak
         gradient_multiplier = (
             0.35 if ev.thermal_gradient_sustained < 0.2
             else min(1.0, ev.thermal_gradient_sustained + 0.3)
@@ -172,7 +175,6 @@ class EvidenceScorer:
         ev.negative_penalty = round(neg_penalty, 3)
         ev.final_confidence = round(final_conf, 3)
 
-        # Primary explanatory reasoning
         if final_conf >= 0.80 or (is_currently_open and final_conf >= 0.60):
             ev.primary_reason = (
                 f"Rapid thermal departure ({features.temp_rate:.1f}°C/h, residual "
